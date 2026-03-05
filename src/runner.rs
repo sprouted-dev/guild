@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use colored::{Color, Colorize};
@@ -7,6 +8,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
+use crate::cache::Cache;
+use crate::config::TargetConfig;
 use crate::error::RunnerError;
 use crate::graph::{ProjectGraph, TaskGraph, TaskId};
 
@@ -31,6 +34,8 @@ pub struct TaskResult {
     pub exit_code: Option<i32>,
     /// Duration of the task execution.
     pub duration: Duration,
+    /// Whether the result came from cache.
+    pub cached: bool,
 }
 
 /// Aggregate result of running all tasks.
@@ -42,6 +47,8 @@ pub struct RunResult {
     pub failure_count: usize,
     /// Number of tasks that were skipped (due to fail-fast).
     pub skipped_count: usize,
+    /// Number of tasks that were served from cache.
+    pub cached_count: usize,
     /// Individual task results in completion order.
     pub task_results: Vec<TaskResult>,
     /// Total duration of the run.
@@ -81,6 +88,8 @@ pub struct TaskRunner {
     run_mode: RunMode,
     /// Working directory for tasks (workspace root).
     working_dir: PathBuf,
+    /// Optional cache for task results.
+    cache: Option<Arc<Mutex<Cache>>>,
 }
 
 impl TaskRunner {
@@ -90,12 +99,19 @@ impl TaskRunner {
             concurrency: concurrency.max(1),
             run_mode: RunMode::default(),
             working_dir,
+            cache: None,
         }
     }
 
     /// Set the run mode (fail-fast or continue).
     pub fn with_run_mode(mut self, mode: RunMode) -> Self {
         self.run_mode = mode;
+        self
+    }
+
+    /// Enable caching with the given cache instance.
+    pub fn with_cache(mut self, cache: Cache) -> Self {
+        self.cache = Some(Arc::new(Mutex::new(cache)));
         self
     }
 
@@ -113,6 +129,7 @@ impl TaskRunner {
                 success_count: 0,
                 failure_count: 0,
                 skipped_count: 0,
+                cached_count: 0,
                 task_results: vec![],
                 total_duration: start_time.elapsed(),
             });
@@ -132,8 +149,8 @@ impl TaskRunner {
             }
         }
 
-        // Build task -> command mapping
-        let mut task_commands: HashMap<TaskId, (String, PathBuf)> = HashMap::new();
+        // Build task -> (command, root, target_config) mapping
+        let mut task_commands: HashMap<TaskId, (String, PathBuf, TargetConfig)> = HashMap::new();
         for task_id in task_graph.tasks() {
             let project_name = task_id.project().to_string();
             let target_name = task_id.target();
@@ -144,9 +161,16 @@ impl TaskRunner {
                     .get(&project_name)
                     .cloned()
                     .unwrap_or_else(|| self.working_dir.clone());
-                task_commands.insert(task_id.clone(), (target.command().to_string(), root));
+                task_commands.insert(
+                    task_id.clone(),
+                    (target.command().to_string(), root, target.clone()),
+                );
             }
         }
+
+        // Track completed task hashes for dependency-based cache invalidation
+        let completed_hashes: Arc<Mutex<HashMap<TaskId, String>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         // Channel for task completion events
         let (tx, mut rx) = mpsc::channel::<TaskEvent>(100);
@@ -154,6 +178,7 @@ impl TaskRunner {
         let mut task_results: Vec<TaskResult> = Vec::new();
         let mut success_count = 0usize;
         let mut failure_count = 0usize;
+        let mut cached_count = 0usize;
         let mut running_count = 0usize;
         let mut should_stop = false;
 
@@ -180,7 +205,8 @@ impl TaskRunner {
                     running_count += 1;
 
                     // Get command and working dir
-                    let Some((command, cwd)) = task_commands.get(&task_id).cloned() else {
+                    let Some((command, cwd, target_config)) = task_commands.get(&task_id).cloned()
+                    else {
                         continue;
                     };
 
@@ -191,13 +217,99 @@ impl TaskRunner {
                         .unwrap_or(Color::White);
 
                     let prefix = format!("[{}]", task_id.project()).color(color).bold();
-                    println!("{prefix} Starting {}", task_id.target());
 
-                    // Spawn the task
-                    tokio::spawn(async move {
-                        let result = run_task(&task_id, &command, &cwd, color).await;
+                    // Check cache if enabled
+                    let mut input_hash: Option<String> = None;
+                    let mut cache_hit = false;
+
+                    if let Some(ref cache) = self.cache {
+                        // Collect dependency hashes
+                        let dep_hashes: Vec<String> = {
+                            let hashes = completed_hashes.lock().unwrap();
+                            task_graph
+                                .dependencies_of(&task_id)
+                                .map(|deps| {
+                                    deps.iter()
+                                        .filter_map(|dep| hashes.get(dep).cloned())
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        };
+
+                        // Compute input hash
+                        let mut cache_guard = cache.lock().unwrap();
+                        if let Ok(hash) = cache_guard.compute_input_hash(
+                            &command,
+                            &cwd,
+                            target_config.inputs(),
+                            &dep_hashes,
+                        ) {
+                            input_hash = Some(hash.clone());
+
+                            // Check if we have a valid cache entry
+                            if let Some(_entry) = cache_guard.check(&task_id, &hash) {
+                                cache_hit = true;
+                            }
+                        }
+                    }
+
+                    if cache_hit {
+                        println!(
+                            "{prefix} {} {} {}",
+                            "✓".green(),
+                            task_id.target(),
+                            "[cached]".cyan()
+                        );
+
+                        // Store the hash for dependent tasks
+                        if let Some(ref hash) = input_hash {
+                            completed_hashes
+                                .lock()
+                                .unwrap()
+                                .insert(task_id.clone(), hash.clone());
+                        }
+
+                        // Send immediate completion
+                        let result = TaskResult {
+                            task_id: task_id.clone(),
+                            success: true,
+                            exit_code: Some(0),
+                            duration: Duration::ZERO,
+                            cached: true,
+                        };
                         let _ = tx.send(TaskEvent::Completed { task_id, result }).await;
-                    });
+                    } else {
+                        println!("{prefix} Starting {}", task_id.target());
+
+                        // Spawn the task
+                        let cache_clone = self.cache.clone();
+                        let completed_hashes_clone = completed_hashes.clone();
+                        tokio::spawn(async move {
+                            let result = run_task(&task_id, &command, &cwd, color).await;
+
+                            // Store hash for dependent tasks
+                            if let Some(ref hash) = input_hash {
+                                completed_hashes_clone
+                                    .lock()
+                                    .unwrap()
+                                    .insert(task_id.clone(), hash.clone());
+                            }
+
+                            // Write to cache if successful
+                            if result.success
+                                && let (Some(cache), Some(hash)) = (&cache_clone, &input_hash)
+                            {
+                                let _ = cache.lock().unwrap().write(
+                                    &task_id,
+                                    hash.clone(),
+                                    true,
+                                    command.clone(),
+                                );
+                            }
+
+                            let _ = tx.send(TaskEvent::Completed { task_id, result }).await;
+                        });
+                    }
                 }
             }
 
@@ -219,7 +331,11 @@ impl TaskRunner {
                         .unwrap_or(Color::White);
                     let prefix = format!("[{}]", task_id.project()).color(color).bold();
 
-                    if result.success {
+                    if result.cached {
+                        // Already printed the cached message
+                        cached_count += 1;
+                        success_count += 1;
+                    } else if result.success {
                         println!(
                             "{prefix} {} {} in {:.2}s",
                             "✓".green(),
@@ -262,6 +378,7 @@ impl TaskRunner {
             success_count,
             failure_count,
             skipped_count,
+            cached_count,
             task_results,
             total_duration: start_time.elapsed(),
         })
@@ -326,12 +443,14 @@ async fn run_task(task_id: &TaskId, command: &str, cwd: &PathBuf, color: Color) 
                     success: status.success(),
                     exit_code: status.code(),
                     duration,
+                    cached: false,
                 },
                 Err(_) => TaskResult {
                     task_id: task_id.clone(),
                     success: false,
                     exit_code: None,
                     duration,
+                    cached: false,
                 },
             }
         }
@@ -340,6 +459,7 @@ async fn run_task(task_id: &TaskId, command: &str, cwd: &PathBuf, color: Color) 
             success: false,
             exit_code: None,
             duration: start.elapsed(),
+            cached: false,
         },
     }
 }
@@ -571,5 +691,90 @@ mod tests {
 
         assert_eq!(core_idx, 0, "core should complete first");
         assert_eq!(app_idx, 3, "app should complete last");
+    }
+
+    #[tokio::test]
+    async fn test_cache_hit_skips_execution() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let project_dir = temp.path().join("app");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        // Create a project with inputs so the cache has something to hash
+        let toml = r#"[project]
+name = "app"
+
+[targets.build]
+command = "echo hello"
+inputs = []
+"#;
+        let project = ProjectConfig::from_str(toml, project_dir.clone()).unwrap();
+        let projects = vec![project];
+        let project_graph = ProjectGraph::build(projects).unwrap();
+
+        // First run - no cache
+        let cache = Cache::new(temp.path());
+        let task_graph = TaskGraph::build(&project_graph, &tname("build")).unwrap();
+        let runner = TaskRunner::new(4, temp.path().to_path_buf()).with_cache(cache);
+        let result = runner.run(task_graph, &project_graph).await.unwrap();
+
+        assert_eq!(result.success_count, 1);
+        assert_eq!(result.cached_count, 0);
+
+        // Second run - should hit cache
+        let cache = Cache::new(temp.path());
+        let task_graph = TaskGraph::build(&project_graph, &tname("build")).unwrap();
+        let runner = TaskRunner::new(4, temp.path().to_path_buf()).with_cache(cache);
+        let result = runner.run(task_graph, &project_graph).await.unwrap();
+
+        assert_eq!(result.success_count, 1);
+        assert_eq!(result.cached_count, 1);
+        assert!(result.task_results[0].cached);
+    }
+
+    #[tokio::test]
+    async fn test_changed_input_invalidates_cache() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let project_dir = temp.path().join("app");
+        let src_dir = project_dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+        let toml = r#"[project]
+name = "app"
+
+[targets.build]
+command = "echo built"
+inputs = ["src/**/*.rs"]
+"#;
+        let project = ProjectConfig::from_str(toml, project_dir.clone()).unwrap();
+        let projects = vec![project];
+        let project_graph = ProjectGraph::build(projects).unwrap();
+
+        // First run
+        let cache = Cache::new(temp.path());
+        let task_graph = TaskGraph::build(&project_graph, &tname("build")).unwrap();
+        let runner = TaskRunner::new(4, temp.path().to_path_buf()).with_cache(cache);
+        let result = runner.run(task_graph, &project_graph).await.unwrap();
+
+        assert_eq!(result.cached_count, 0);
+
+        // Modify input file
+        std::fs::write(
+            src_dir.join("main.rs"),
+            "fn main() { println!(\"modified\"); }",
+        )
+        .unwrap();
+
+        // Second run - cache should be invalidated
+        let cache = Cache::new(temp.path());
+        let task_graph = TaskGraph::build(&project_graph, &tname("build")).unwrap();
+        let runner = TaskRunner::new(4, temp.path().to_path_buf()).with_cache(cache);
+        let result = runner.run(task_graph, &project_graph).await.unwrap();
+
+        assert_eq!(result.cached_count, 0);
     }
 }

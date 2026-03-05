@@ -48,6 +48,7 @@ pub async fn run_target(
             success_count: 0,
             failure_count: 0,
             skipped_count: 0,
+            cached_count: 0,
             task_results: vec![],
             total_duration: std::time::Duration::ZERO,
         });
@@ -115,6 +116,7 @@ pub async fn run_target(
             success_count: 0,
             failure_count: 0,
             skipped_count: 0,
+            cached_count: 0,
             task_results: vec![],
             total_duration: std::time::Duration::ZERO,
         });
