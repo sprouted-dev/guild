@@ -70,3 +70,43 @@ pub enum TaskGraphError {
     #[error("task '{project}:{target}' not found in graph")]
     TaskNotFound { project: String, target: String },
 }
+
+/// Errors from initializing a workspace with `guild init`.
+#[derive(Debug, Error)]
+pub enum InitError {
+    #[error("failed to read '{path}': {source}")]
+    ReadFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to write '{path}': {source}")]
+    WriteFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to parse JSON '{path}': {source}")]
+    ParseJson {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+
+    #[error("failed to parse TOML '{path}': {source}")]
+    ParseToml {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
+
+    #[error("failed to walk directory '{path}': {source}")]
+    WalkDir {
+        path: PathBuf,
+        source: walkdir::Error,
+    },
+
+    #[error("invalid path: {path}")]
+    InvalidPath { path: PathBuf },
+
+    #[error("I/O error: {source}")]
+    Io { source: std::io::Error },
+}

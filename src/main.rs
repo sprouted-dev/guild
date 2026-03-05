@@ -6,7 +6,7 @@ use clap::Parser;
 use cli::{CacheCommand, Cli, Commands};
 use guild_cli::{
     ProjectGraph, WorkspaceConfig, discover_projects, find_workspace_root, print_error,
-    print_header, print_not_implemented, print_project_entry,
+    print_header, print_not_implemented, print_project_entry, print_success, run_init,
 };
 
 #[tokio::main]
@@ -75,7 +75,31 @@ async fn run(cli: Cli) -> Result<()> {
             CacheCommand::Status => print_not_implemented("cache status"),
             CacheCommand::Clean => print_not_implemented("cache clean"),
         },
-        Some(Commands::Init) => print_not_implemented("init"),
+        Some(Commands::Init { yes }) => {
+            let cwd = std::env::current_dir()?;
+            // Use the current directory name as the workspace name
+            let workspace_name = cwd
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "workspace".to_string());
+
+            print_header(&format!("Initializing Guild workspace: {workspace_name}"));
+
+            let result = run_init(&cwd, &workspace_name, yes)?;
+
+            println!();
+            if result.written.is_empty() && result.skipped.is_empty() {
+                print_success(
+                    "No projects detected. Create project manifests first (package.json, Cargo.toml, go.mod, or pyproject.toml).",
+                );
+            } else {
+                print_success(&format!(
+                    "Initialized {} guild.toml file(s), skipped {} existing",
+                    result.written.len(),
+                    result.skipped.len()
+                ));
+            }
+        }
     }
 
     Ok(())
