@@ -227,6 +227,7 @@ dependencies = [
  "glob",
  "proptest",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tokio",

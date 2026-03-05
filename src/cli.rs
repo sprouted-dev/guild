@@ -54,7 +54,11 @@ pub enum Commands {
     },
 
     /// Scaffold guild.toml from existing manifests
-    Init,
+    Init {
+        /// Write all files without prompting for confirmation
+        #[arg(long, short)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
