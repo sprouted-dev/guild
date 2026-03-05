@@ -6,7 +6,8 @@ use clap::Parser;
 use cli::{CacheCommand, Cli, Commands};
 use guild_cli::{
     ProjectGraph, WorkspaceConfig, discover_projects, find_workspace_root, print_error,
-    print_header, print_not_implemented, print_project_entry, print_success, run_init, run_target,
+    print_header, print_not_implemented, print_project_entry, print_success, run_affected,
+    run_init, run_target,
 };
 
 #[tokio::main]
@@ -76,7 +77,13 @@ async fn run(cli: Cli) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Some(Commands::Affected { target }) => print_not_implemented(&format!("affected {target}")),
+        Some(Commands::Affected { target, base }) => {
+            let cwd = std::env::current_dir()?;
+            let result = run_affected(&cwd, &target, &base).await?;
+            if !result.is_success() {
+                std::process::exit(1);
+            }
+        }
         Some(Commands::Cache { command }) => match command {
             CacheCommand::Status => print_not_implemented("cache status"),
             CacheCommand::Clean => print_not_implemented("cache clean"),
