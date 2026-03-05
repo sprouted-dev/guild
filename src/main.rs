@@ -5,9 +5,9 @@ use clap::Parser;
 
 use cli::{CacheCommand, Cli, Commands};
 use guild_cli::{
-    ProjectGraph, WorkspaceConfig, discover_projects, find_workspace_root, print_error,
-    print_header, print_not_implemented, print_project_entry, print_success, run_affected,
-    run_init, run_target,
+    Cache, ProjectGraph, WorkspaceConfig, discover_projects, find_workspace_root, print_error,
+    print_header, print_project_entry, print_success, print_warning, run_affected, run_init,
+    run_target,
 };
 
 #[tokio::main]
@@ -108,13 +108,31 @@ async fn run(cli: Cli) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Some(Commands::Cache { command }) => match command {
-            CacheCommand::Status => print_not_implemented("cache status"),
-            CacheCommand::Clean => print_not_implemented("cache clean"),
-        },
+        Some(Commands::Cache { command }) => {
+            let cwd = std::env::current_dir()?;
+            let root = find_workspace_root(&cwd)?;
+            let cache = Cache::new(&root);
+
+            match command {
+                CacheCommand::Status => {
+                    let stats = cache.stats()?;
+                    print_header("Cache Status");
+                    println!("  Cache directory: {}", cache.cache_dir().display());
+                    println!("  Entries: {}", stats.entry_count);
+                    println!("  Total size: {}", format_size(stats.total_size));
+                }
+                CacheCommand::Clean => {
+                    if !cache.cache_dir().exists() {
+                        print_warning("Cache directory does not exist, nothing to clean");
+                    } else {
+                        let removed = cache.clean()?;
+                        print_success(&format!("Removed {removed} cache entries"));
+                    }
+                }
+            }
+        }
         Some(Commands::Init { yes }) => {
             let cwd = std::env::current_dir()?;
-            // Use the current directory name as the workspace name
             let workspace_name = cwd
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
@@ -140,4 +158,20 @@ async fn run(cli: Cli) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn format_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} bytes")
+    }
 }

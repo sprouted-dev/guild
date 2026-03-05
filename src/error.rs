@@ -163,3 +163,52 @@ pub enum InitError {
     #[error("I/O error: {source}")]
     Io { source: std::io::Error },
 }
+
+/// Errors from cache operations.
+#[derive(Debug, Error)]
+pub enum CacheError {
+    #[error("failed to read '{path}': {source}")]
+    ReadFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to write '{path}': {source}")]
+    WriteFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to remove '{path}': {source}")]
+    RemoveFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to create directory '{path}': {source}")]
+    CreateDir {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to read directory '{path}': {source}")]
+    ReadDir {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("invalid glob pattern '{pattern}': {source}")]
+    GlobPattern {
+        pattern: String,
+        source: glob::PatternError,
+    },
+
+    #[error("glob entry error: {source}")]
+    GlobEntry { source: glob::GlobError },
+
+    #[error("failed to serialize cache entry for '{task}': {source}")]
+    SerializeEntry {
+        task: String,
+        source: serde_json::Error,
+    },
+}
