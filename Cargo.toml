@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "io-util", "sync"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 thiserror = "2"

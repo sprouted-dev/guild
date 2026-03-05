@@ -71,6 +71,19 @@ pub enum TaskGraphError {
     TaskNotFound { project: String, target: String },
 }
 
+/// Errors from running tasks.
+#[derive(Debug, Error)]
+pub enum RunnerError {
+    #[error("task graph error: {0}")]
+    TaskGraph(#[from] TaskGraphError),
+
+    #[error("failed to spawn command: {message}")]
+    SpawnFailed { message: String },
+
+    #[error("task '{project}:{target}' has no command configured")]
+    NoCommand { project: String, target: String },
+}
+
 /// Errors from initializing a workspace with `guild init`.
 #[derive(Debug, Error)]
 pub enum InitError {
