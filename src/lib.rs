@@ -1,3 +1,4 @@
+mod affected;
 mod commands;
 mod config;
 mod discovery;
@@ -7,12 +8,14 @@ mod init;
 mod output;
 mod runner;
 
-pub use commands::run_target;
+pub use commands::{run_affected, run_target};
 pub use config::{
     DependsOn, ProjectConfig, ProjectName, TargetConfig, TargetName, WorkspaceConfig,
 };
 pub use discovery::{discover_projects, find_workspace_root};
-pub use error::{ConfigError, GraphError, InitError, ParseError, RunnerError, TaskGraphError};
+pub use error::{
+    AffectedError, ConfigError, GraphError, InitError, ParseError, RunnerError, TaskGraphError,
+};
 pub use graph::{ProjectGraph, TaskGraph, TaskId, TaskState};
 pub use init::run_init;
 pub use output::{

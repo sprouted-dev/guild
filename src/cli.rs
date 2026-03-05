@@ -39,6 +39,9 @@ pub enum Commands {
     Affected {
         /// Target name to run on affected projects
         target: String,
+        /// Base branch to compare against (default: main)
+        #[arg(long, short, default_value = "main")]
+        base: String,
     },
 
     /// List all discovered projects

@@ -99,6 +99,31 @@ pub enum RunnerError {
     ProjectNotFound { name: String },
 }
 
+/// Errors from detecting affected projects.
+#[derive(Debug, Error)]
+pub enum AffectedError {
+    #[error("not a git repository: {path}")]
+    NotAGitRepo { path: PathBuf },
+
+    #[error("git error: {message}")]
+    Git { message: String },
+
+    #[error("base branch '{branch}' not found")]
+    BaseBranchNotFound { branch: String },
+
+    #[error("workspace not found from '{path}': {reason}")]
+    WorkspaceNotFound { path: PathBuf, reason: String },
+
+    #[error("configuration error in '{path}': {reason}")]
+    ConfigError { path: PathBuf, reason: String },
+
+    #[error("graph error: {reason}")]
+    GraphError { reason: String },
+
+    #[error("invalid target '{target}': {reason}")]
+    InvalidTarget { target: String, reason: String },
+}
+
 /// Errors from initializing a workspace with `guild init`.
 #[derive(Debug, Error)]
 pub enum InitError {
