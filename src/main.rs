@@ -66,10 +66,34 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
 
-        Some(Commands::Dev) => print_not_implemented("dev"),
-        Some(Commands::Build) => print_not_implemented("build"),
-        Some(Commands::Test) => print_not_implemented("test"),
-        Some(Commands::Lint) => print_not_implemented("lint"),
+        Some(Commands::Dev) => {
+            let cwd = std::env::current_dir()?;
+            let result = run_target(&cwd, "dev", None).await?;
+            if !result.is_success() {
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Build) => {
+            let cwd = std::env::current_dir()?;
+            let result = run_target(&cwd, "build", None).await?;
+            if !result.is_success() {
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Test) => {
+            let cwd = std::env::current_dir()?;
+            let result = run_target(&cwd, "test", None).await?;
+            if !result.is_success() {
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Lint) => {
+            let cwd = std::env::current_dir()?;
+            let result = run_target(&cwd, "lint", None).await?;
+            if !result.is_success() {
+                std::process::exit(1);
+            }
+        }
         Some(Commands::Run { target, project }) => {
             let cwd = std::env::current_dir()?;
             let result = run_target(&cwd, &target, project.as_deref()).await?;
