@@ -48,3 +48,25 @@ pub enum GraphError {
     #[error("unknown project '{name}' referenced in depends_on of '{referenced_by}'")]
     UnknownProject { name: String, referenced_by: String },
 }
+
+/// Errors from building and validating the task dependency graph.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TaskGraphError {
+    #[error("cycle detected in task dependencies: {project}:{target}")]
+    CycleDetected { project: String, target: String },
+
+    #[error(
+        "unknown target '{target}' referenced in depends_on of '{project}:{referencing_target}'"
+    )]
+    UnknownTarget {
+        target: String,
+        project: String,
+        referencing_target: String,
+    },
+
+    #[error("unknown project '{project}' referenced in task graph")]
+    UnknownProject { project: String },
+
+    #[error("task '{project}:{target}' not found in graph")]
+    TaskNotFound { project: String, target: String },
+}
