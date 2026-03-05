@@ -13,6 +13,13 @@ fn init_git_repo(dir: &std::path::Path) {
         .output()
         .expect("failed to init git repo");
 
+    // Explicitly create main branch (git's default may be master on older versions)
+    Command::new("git")
+        .args(["checkout", "-b", "main"])
+        .current_dir(dir)
+        .output()
+        .expect("failed to create main branch");
+
     // Configure git user for commits
     Command::new("git")
         .args(["config", "user.email", "test@test.com"])
