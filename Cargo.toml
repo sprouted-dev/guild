@@ -1,0 +1,32 @@
+[package]
+name = "guild-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93.1"
+description = "Rust-native polyglot monorepo orchestrator"
+license = "MIT"
+repository = "https://github.com/sprouted-dev/guild"
+homepage = "https://github.com/sprouted-dev/guild"
+authors = ["Sprouted Dev"]
+keywords = ["monorepo", "build-system", "task-runner", "polyglot"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+
+[[bin]]
+name = "guild"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "2"
+anyhow = "1"
+colored = "3"
+glob = "0.3"
+walkdir = "2"
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"
