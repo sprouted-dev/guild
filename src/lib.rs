@@ -1,3 +1,4 @@
+mod commands;
 mod config;
 mod discovery;
 mod error;
@@ -6,6 +7,7 @@ mod init;
 mod output;
 mod runner;
 
+pub use commands::run_target;
 pub use config::{
     DependsOn, ProjectConfig, ProjectName, TargetConfig, TargetName, WorkspaceConfig,
 };

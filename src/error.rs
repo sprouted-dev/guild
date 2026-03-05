@@ -82,6 +82,21 @@ pub enum RunnerError {
 
     #[error("task '{project}:{target}' has no command configured")]
     NoCommand { project: String, target: String },
+
+    #[error("invalid target '{target}': {reason}")]
+    InvalidTarget { target: String, reason: String },
+
+    #[error("workspace not found from '{path}': {reason}")]
+    WorkspaceNotFound { path: PathBuf, reason: String },
+
+    #[error("configuration error in '{path}': {reason}")]
+    ConfigError { path: PathBuf, reason: String },
+
+    #[error("graph error: {reason}")]
+    GraphError { reason: String },
+
+    #[error("project '{name}' not found in workspace")]
+    ProjectNotFound { name: String },
 }
 
 /// Errors from initializing a workspace with `guild init`.
