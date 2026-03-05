@@ -21,9 +21,6 @@ jobs:
           - runner: macos-latest
             target: aarch64-apple-darwin
             asset: guild-macos-arm64.tar.gz
-          - runner: macos-latest
-            target: x86_64-apple-darwin
-            asset: guild-macos-x86_64.tar.gz
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             asset: guild-linux-x86_64.tar.gz
@@ -102,7 +99,6 @@ jobs:
         id: sha
         run: |
           echo "arm64=$(awk '{print $1}' artifacts/guild-macos-arm64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
-          echo "x86_64=$(awk '{print $1}' artifacts/guild-macos-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
           echo "linux=$(awk '{print $1}' artifacts/guild-linux-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout homebrew-tap
@@ -115,13 +111,11 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
           SHA_ARM64: ${{ steps.sha.outputs.arm64 }}
-          SHA_X86_64: ${{ steps.sha.outputs.x86_64 }}
           SHA_LINUX: ${{ steps.sha.outputs.linux }}
         run: |
           VERSION="${VERSION#v}"
           sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/guild.rb
           sed -i "/macos-arm64/{ n; s/sha256 \".*\"/sha256 \"${SHA_ARM64}\"/ }" Formula/guild.rb
-          sed -i "/macos-x86_64/{ n; s/sha256 \".*\"/sha256 \"${SHA_X86_64}\"/ }" Formula/guild.rb
           sed -i "/linux-x86_64/{ n; s/sha256 \".*\"/sha256 \"${SHA_LINUX}\"/ }" Formula/guild.rb
 
       - name: Commit and push
