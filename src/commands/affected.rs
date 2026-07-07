@@ -3,6 +3,7 @@ use std::path::Path;
 use colored::Colorize;
 
 use crate::affected::{compute_affected, get_changed_files};
+use crate::cache::Cache;
 use crate::config::{TargetName, WorkspaceConfig};
 use crate::discovery::{discover_projects, find_workspace_root};
 use crate::error::AffectedError;
@@ -13,10 +14,13 @@ use crate::runner::{RunResult, TaskRunner};
 ///
 /// Detects which projects have changed since the base branch and runs the target
 /// on those projects plus any projects that transitively depend on them.
+/// When `use_cache` is `true`, cacheable targets may be served from the workspace
+/// cache instead of re-running (see [`crate::config::TargetConfig::cache`]).
 pub async fn run_affected(
     cwd: &Path,
     target: &str,
     base_branch: &str,
+    use_cache: bool,
 ) -> Result<RunResult, AffectedError> {
     // Parse target name
     let target_name: TargetName = target.parse().map_err(|e| AffectedError::InvalidTarget {
@@ -143,7 +147,11 @@ pub async fn run_affected(
     let concurrency = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
-    let runner = TaskRunner::new(concurrency, root);
+    let cache_root = root.clone();
+    let mut runner = TaskRunner::new(concurrency, root);
+    if use_cache {
+        runner = runner.with_cache(Cache::new(&cache_root));
+    }
 
     // Execute
     let result =

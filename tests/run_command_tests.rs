@@ -52,7 +52,7 @@ async fn test_run_single_project() {
         &[("my-app", "", &[("build", "echo building", &[])])],
     );
 
-    let result = run_target(dir.path(), "build", None).await.unwrap();
+    let result = run_target(dir.path(), "build", None, false).await.unwrap();
 
     assert_eq!(result.success_count, 1);
     assert_eq!(result.failure_count, 0);
@@ -71,7 +71,7 @@ async fn test_run_multiple_projects() {
         ],
     );
 
-    let result = run_target(dir.path(), "build", None).await.unwrap();
+    let result = run_target(dir.path(), "build", None, false).await.unwrap();
 
     assert_eq!(result.success_count, 3);
     assert_eq!(result.failure_count, 0);
@@ -89,7 +89,7 @@ async fn test_run_with_dependencies() {
         ],
     );
 
-    let result = run_target(dir.path(), "build", None).await.unwrap();
+    let result = run_target(dir.path(), "build", None, false).await.unwrap();
 
     assert_eq!(result.success_count, 2);
     assert_eq!(result.failure_count, 0);
@@ -120,7 +120,7 @@ async fn test_run_scoped_to_project() {
     );
 
     // Run build only for app-a
-    let result = run_target(dir.path(), "build", Some("app-a"))
+    let result = run_target(dir.path(), "build", Some("app-a"), false)
         .await
         .unwrap();
 
@@ -142,7 +142,7 @@ async fn test_run_scoped_includes_upstream_deps() {
     );
 
     // Run build for my-app should include my-lib (its dependency) but not other
-    let result = run_target(dir.path(), "build", Some("my-app"))
+    let result = run_target(dir.path(), "build", Some("my-app"), false)
         .await
         .unwrap();
 
@@ -165,7 +165,7 @@ async fn test_run_failing_task() {
     let dir = tempdir().unwrap();
     create_workspace(dir.path(), &[("bad-app", "", &[("build", "exit 1", &[])])]);
 
-    let result = run_target(dir.path(), "build", None).await.unwrap();
+    let result = run_target(dir.path(), "build", None, false).await.unwrap();
 
     assert_eq!(result.success_count, 0);
     assert_eq!(result.failure_count, 1);
@@ -181,7 +181,7 @@ async fn test_run_nonexistent_target() {
     );
 
     // Run a target that doesn't exist
-    let result = run_target(dir.path(), "test", None).await.unwrap();
+    let result = run_target(dir.path(), "test", None, false).await.unwrap();
 
     // Should succeed with 0 tasks (no projects have 'test' target)
     assert_eq!(result.success_count, 0);
@@ -198,7 +198,7 @@ async fn test_run_nonexistent_project() {
     );
 
     // Run build for a project that doesn't exist
-    let result = run_target(dir.path(), "build", Some("nonexistent")).await;
+    let result = run_target(dir.path(), "build", Some("nonexistent"), false).await;
 
     assert!(result.is_err());
 }
@@ -213,7 +213,7 @@ async fn test_run_from_subdirectory() {
 
     // Run from within my-app directory
     let subdir = dir.path().join("my-app");
-    let result = run_target(&subdir, "build", None).await.unwrap();
+    let result = run_target(&subdir, "build", None, false).await.unwrap();
 
     assert_eq!(result.success_count, 1);
     assert!(result.is_success());
@@ -232,7 +232,7 @@ async fn test_run_diamond_dependency() {
         ],
     );
 
-    let result = run_target(dir.path(), "build", None).await.unwrap();
+    let result = run_target(dir.path(), "build", None, false).await.unwrap();
 
     assert_eq!(result.success_count, 4);
     assert_eq!(result.failure_count, 0);
@@ -267,7 +267,7 @@ async fn test_run_with_local_target_dependencies() {
         )],
     );
 
-    let result = run_target(dir.path(), "test", None).await.unwrap();
+    let result = run_target(dir.path(), "test", None, false).await.unwrap();
 
     assert_eq!(result.success_count, 2);
     assert_eq!(result.failure_count, 0);
@@ -284,4 +284,42 @@ async fn test_run_with_local_target_dependencies() {
         .position(|r| r.task_id.target().as_str() == "test")
         .unwrap();
     assert!(build_idx < test_idx, "build should complete before test");
+}
+
+#[tokio::test]
+async fn test_run_caches_on_second_run() {
+    // Regression: the run path must actually consult the cache. Before caching
+    // was wired into run_target, the second run always re-executed.
+    let dir = tempdir().unwrap();
+    create_workspace(
+        dir.path(),
+        &[("my-app", "", &[("build", "echo building", &[])])],
+    );
+
+    // First run: cold cache — executes and records the result.
+    let first = run_target(dir.path(), "build", None, true).await.unwrap();
+    assert_eq!(first.success_count, 1);
+    assert_eq!(first.cached_count, 0);
+
+    // Second run, identical inputs: served from cache, not re-executed.
+    let second = run_target(dir.path(), "build", None, true).await.unwrap();
+    assert_eq!(second.success_count, 1);
+    assert_eq!(second.cached_count, 1);
+    assert!(second.task_results[0].cached);
+}
+
+#[tokio::test]
+async fn test_no_cache_disables_caching() {
+    // With caching disabled, repeated runs never hit the cache.
+    let dir = tempdir().unwrap();
+    create_workspace(
+        dir.path(),
+        &[("my-app", "", &[("build", "echo building", &[])])],
+    );
+
+    let first = run_target(dir.path(), "build", None, false).await.unwrap();
+    assert_eq!(first.cached_count, 0);
+
+    let second = run_target(dir.path(), "build", None, false).await.unwrap();
+    assert_eq!(second.cached_count, 0);
 }

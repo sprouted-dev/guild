@@ -218,11 +218,16 @@ impl TaskRunner {
 
                     let prefix = format!("[{}]", task_id.project()).color(color).bold();
 
-                    // Check cache if enabled
+                    // Check cache if enabled for the runner AND the target opts in.
+                    // A target with `cache = false` (e.g. a long-running `dev`
+                    // watcher) leaves `input_hash` as `None`, which also skips the
+                    // cache write below — it always re-runs and is never served stale.
                     let mut input_hash: Option<String> = None;
                     let mut cache_hit = false;
 
-                    if let Some(ref cache) = self.cache {
+                    if let Some(ref cache) = self.cache
+                        && target_config.cache()
+                    {
                         // Collect dependency hashes
                         let dep_hashes: Vec<String> = {
                             let hashes = completed_hashes.lock().unwrap();
@@ -775,6 +780,42 @@ inputs = ["src/**/*.rs"]
         let runner = TaskRunner::new(4, temp.path().to_path_buf()).with_cache(cache);
         let result = runner.run(task_graph, &project_graph).await.unwrap();
 
+        assert_eq!(result.cached_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_false_target_never_cached() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let project_dir = temp.path().join("app");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        // `cache = false` must opt the target out even when the runner has a cache.
+        let toml = r#"[project]
+name = "app"
+
+[targets.build]
+command = "echo hello"
+cache = false
+"#;
+        let project = ProjectConfig::from_str(toml, project_dir).unwrap();
+        let project_graph = ProjectGraph::build(vec![project]).unwrap();
+
+        // First run populates nothing (opted out).
+        let task_graph = TaskGraph::build(&project_graph, &tname("build")).unwrap();
+        let runner =
+            TaskRunner::new(4, temp.path().to_path_buf()).with_cache(Cache::new(temp.path()));
+        let result = runner.run(task_graph, &project_graph).await.unwrap();
+        assert_eq!(result.success_count, 1);
+        assert_eq!(result.cached_count, 0);
+
+        // Second run must still execute — never served from cache.
+        let task_graph = TaskGraph::build(&project_graph, &tname("build")).unwrap();
+        let runner =
+            TaskRunner::new(4, temp.path().to_path_buf()).with_cache(Cache::new(temp.path()));
+        let result = runner.run(task_graph, &project_graph).await.unwrap();
+        assert_eq!(result.success_count, 1);
         assert_eq!(result.cached_count, 0);
     }
 }

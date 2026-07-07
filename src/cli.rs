@@ -9,6 +9,10 @@ use clap::{Parser, Subcommand};
                   and caching for polyglot monorepos — without the Node.js ecosystem."
 )]
 pub struct Cli {
+    /// Disable the task cache for this run — always re-run every target.
+    #[arg(long, global = true)]
+    pub no_cache: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

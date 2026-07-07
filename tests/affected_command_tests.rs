@@ -4,56 +4,72 @@ use std::process::Command;
 use guild_cli::run_affected;
 use tempfile::tempdir;
 
+/// Build a `git` command scoped to `dir` with any ambient git environment
+/// scrubbed. Without this, running the suite inside a git operation (e.g. this
+/// repo's own pre-commit hook) leaks `GIT_DIR`/`GIT_INDEX_FILE`/etc. into these
+/// subprocesses, so `git init`/`add`/`commit` operate on the *outer* repository
+/// instead of the test's tempdir — corrupting it and failing the tests.
+fn git(dir: &std::path::Path) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir);
+    for var in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_PREFIX",
+        "GIT_CONFIG_PARAMETERS",
+    ] {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
 /// Initialize a git repository with an initial commit and main branch.
 fn init_git_repo(dir: &std::path::Path) {
     // Initialize git repo
-    Command::new("git")
+    git(dir)
         .args(["init"])
-        .current_dir(dir)
         .output()
         .expect("failed to init git repo");
 
     // Explicitly create main branch (git's default may be master on older versions)
-    Command::new("git")
+    git(dir)
         .args(["checkout", "-b", "main"])
-        .current_dir(dir)
         .output()
         .expect("failed to create main branch");
 
     // Configure git user for commits
-    Command::new("git")
+    git(dir)
         .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir)
         .output()
         .expect("failed to configure git email");
 
-    Command::new("git")
+    git(dir)
         .args(["config", "user.name", "Test User"])
-        .current_dir(dir)
         .output()
         .expect("failed to configure git name");
 }
 
 fn git_add_all(dir: &std::path::Path) {
-    Command::new("git")
+    git(dir)
         .args(["add", "."])
-        .current_dir(dir)
         .output()
         .expect("failed to add files");
 }
 
 fn git_commit(dir: &std::path::Path, message: &str) {
-    Command::new("git")
+    git(dir)
         .args(["commit", "-m", message])
-        .current_dir(dir)
         .output()
         .expect("failed to commit");
 }
 
 fn git_checkout_new_branch(dir: &std::path::Path, branch: &str) {
-    Command::new("git")
+    git(dir)
         .args(["checkout", "-b", branch])
-        .current_dir(dir)
         .output()
         .expect("failed to create branch");
 }
@@ -137,7 +153,9 @@ async fn test_affected_with_changed_project() {
     git_commit(dir.path(), "Modify app-a");
 
     // Run affected - should only run app-a
-    let result = run_affected(dir.path(), "build", "main").await.unwrap();
+    let result = run_affected(dir.path(), "build", "main", false)
+        .await
+        .unwrap();
 
     assert_eq!(result.success_count, 1);
     assert_eq!(result.failure_count, 0);
@@ -181,7 +199,9 @@ async fn test_affected_with_dependent_project() {
     git_commit(dir.path(), "Modify my-lib");
 
     // Run affected - should run both my-lib (changed) and my-app (dependent)
-    let result = run_affected(dir.path(), "build", "main").await.unwrap();
+    let result = run_affected(dir.path(), "build", "main", false)
+        .await
+        .unwrap();
 
     assert_eq!(result.success_count, 2);
     assert_eq!(result.failure_count, 0);
@@ -215,7 +235,9 @@ async fn test_affected_no_changes() {
     git_checkout_new_branch(dir.path(), "feature");
 
     // Run affected - should run nothing
-    let result = run_affected(dir.path(), "build", "main").await.unwrap();
+    let result = run_affected(dir.path(), "build", "main", false)
+        .await
+        .unwrap();
 
     assert_eq!(result.success_count, 0);
     assert_eq!(result.failure_count, 0);
@@ -254,7 +276,9 @@ async fn test_affected_staged_changes() {
     git_add_all(dir.path());
 
     // Run affected - should detect staged changes
-    let result = run_affected(dir.path(), "build", "main").await.unwrap();
+    let result = run_affected(dir.path(), "build", "main", false)
+        .await
+        .unwrap();
 
     assert_eq!(result.success_count, 1);
     assert_eq!(result.failure_count, 0);
@@ -292,7 +316,9 @@ async fn test_affected_unstaged_changes() {
     .unwrap();
 
     // Run affected - should detect unstaged changes
-    let result = run_affected(dir.path(), "build", "main").await.unwrap();
+    let result = run_affected(dir.path(), "build", "main", false)
+        .await
+        .unwrap();
 
     assert_eq!(result.success_count, 1);
     assert_eq!(result.failure_count, 0);
@@ -333,7 +359,9 @@ async fn test_affected_transitive_dependents() {
     git_commit(dir.path(), "Modify core");
 
     // Run affected - should run all three (core changed, lib and app are transitive dependents)
-    let result = run_affected(dir.path(), "build", "main").await.unwrap();
+    let result = run_affected(dir.path(), "build", "main", false)
+        .await
+        .unwrap();
 
     assert_eq!(result.success_count, 3);
     assert_eq!(result.failure_count, 0);

@@ -3,6 +3,7 @@ use std::path::Path;
 
 use colored::Colorize;
 
+use crate::cache::Cache;
 use crate::config::{ProjectName, TargetName, WorkspaceConfig};
 use crate::discovery::{discover_projects, find_workspace_root};
 use crate::error::RunnerError;
@@ -12,11 +13,14 @@ use crate::runner::{RunResult, TaskRunner};
 /// Run a target across the workspace or for a specific project.
 ///
 /// If `project` is `Some`, scopes execution to that project and its upstream dependencies.
+/// When `use_cache` is `true`, cacheable targets may be served from the workspace
+/// cache instead of re-running (see [`crate::config::TargetConfig::cache`]).
 /// Returns the run result with success/failure counts.
 pub async fn run_target(
     cwd: &Path,
     target: &str,
     project: Option<&str>,
+    use_cache: bool,
 ) -> Result<RunResult, RunnerError> {
     // Parse target name
     let target_name: TargetName = target.parse().map_err(|e| RunnerError::InvalidTarget {
@@ -140,7 +144,11 @@ pub async fn run_target(
     let concurrency = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
-    let runner = TaskRunner::new(concurrency, root);
+    let cache_root = root.clone();
+    let mut runner = TaskRunner::new(concurrency, root);
+    if use_cache {
+        runner = runner.with_cache(Cache::new(&cache_root));
+    }
 
     // Execute
     let result = runner.run(task_graph, &project_graph).await?;

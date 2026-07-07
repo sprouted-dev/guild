@@ -32,6 +32,16 @@ struct TargetSection {
     inputs: Vec<String>,
     #[serde(default)]
     outputs: Vec<String>,
+    /// Whether this target's result may be served from the cache.
+    /// Defaults to `true`; set `cache = false` for long-running or
+    /// always-fresh targets (e.g. `dev` watchers) that must never be skipped.
+    #[serde(default = "default_cache")]
+    cache: bool,
+}
+
+/// Targets are cacheable by default.
+fn default_cache() -> bool {
+    true
 }
 
 /// A validated project configuration parsed from a project's `guild.toml`.
@@ -51,6 +61,7 @@ pub struct TargetConfig {
     depends_on: Vec<DependsOn>,
     inputs: Vec<String>,
     outputs: Vec<String>,
+    cache: bool,
 }
 
 impl ProjectConfig {
@@ -82,6 +93,7 @@ impl ProjectConfig {
                     depends_on: section.depends_on,
                     inputs: section.inputs,
                     outputs: section.outputs,
+                    cache: section.cache,
                 };
                 (name, config)
             })
@@ -131,6 +143,11 @@ impl TargetConfig {
 
     pub fn outputs(&self) -> &[String] {
         &self.outputs
+    }
+
+    /// Whether this target's result may be served from the cache.
+    pub fn cache(&self) -> bool {
+        self.cache
     }
 }
 
@@ -207,5 +224,37 @@ outputs = ["target/release/my-app"]
         let build = &config.targets()[&"build".parse::<TargetName>().unwrap()];
         assert_eq!(build.inputs(), &["src/**/*.rs", "Cargo.toml"]);
         assert_eq!(build.outputs(), &["target/release/my-app"]);
+    }
+
+    #[test]
+    fn test_target_cache_defaults_true() {
+        let toml = r#"
+[project]
+name = "my-app"
+
+[targets.build]
+command = "cargo build"
+"#;
+        let config = ProjectConfig::from_str(toml, PathBuf::from("/tmp/my-app")).unwrap();
+        let build = &config.targets()[&"build".parse::<TargetName>().unwrap()];
+        assert!(build.cache(), "targets should be cacheable by default");
+    }
+
+    #[test]
+    fn test_target_cache_explicit_false() {
+        let toml = r#"
+[project]
+name = "my-app"
+
+[targets.dev]
+command = "vite"
+cache = false
+"#;
+        let config = ProjectConfig::from_str(toml, PathBuf::from("/tmp/my-app")).unwrap();
+        let dev = &config.targets()[&"dev".parse::<TargetName>().unwrap()];
+        assert!(
+            !dev.cache(),
+            "cache = false must disable caching for the target"
+        );
     }
 }
