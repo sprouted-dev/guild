@@ -146,11 +146,32 @@ command = "cargo build"            # Shell command to execute
 depends_on = ["^build"]            # ^ = upstream projects' target
 inputs = ["src/**/*.rs"]           # Files that affect cache validity
 outputs = ["target/release/bin"]   # Files produced by the target
+cache = true                       # Cacheable? (default: true)
 
 [targets.test]
 command = "cargo test"
 depends_on = ["build"]             # Local target dependency (no ^)
+
+[targets.dev]
+command = "cargo watch -x run"
+cache = false                      # Long-running / always-fresh: never cache
 ```
+
+### Caching
+
+Guild caches a target's result keyed by a SHA-256 of its command, its `inputs`
+file contents, and its dependencies' cache keys. On the next run, a target whose
+inputs are unchanged is served from cache instead of re-executing. The cache
+lives at `.guild/cache` under the workspace root.
+
+- Targets are cacheable by default. Set `cache = false` on any target that must
+  always run — long-running watchers (`dev`), or steps whose real inputs Guild
+  can't see. A target with no `inputs` is keyed on its command alone.
+- Pass `--no-cache` to disable the cache for a single invocation:
+  `guild build --no-cache`.
+- `guild dev` never caches, regardless of configuration.
+
+Inspect or clear the cache with `guild cache status` and `guild cache clean`.
 
 ### Dependency Syntax
 

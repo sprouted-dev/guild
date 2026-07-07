@@ -21,6 +21,10 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    // `--no-cache` disables the cache for the whole invocation; otherwise
+    // caching is on and each target decides via its own `cache` setting.
+    let use_cache = !cli.no_cache;
+
     match cli.command {
         None => {
             use clap::CommandFactory;
@@ -68,42 +72,45 @@ async fn run(cli: Cli) -> Result<()> {
 
         Some(Commands::Dev) => {
             let cwd = std::env::current_dir()?;
-            let result = run_target(&cwd, "dev", None).await?;
+            // `dev` targets are long-running watchers — never serve them from
+            // cache regardless of the flag, or a second `guild dev` would skip
+            // starting the server.
+            let result = run_target(&cwd, "dev", None, false).await?;
             if !result.is_success() {
                 std::process::exit(1);
             }
         }
         Some(Commands::Build) => {
             let cwd = std::env::current_dir()?;
-            let result = run_target(&cwd, "build", None).await?;
+            let result = run_target(&cwd, "build", None, use_cache).await?;
             if !result.is_success() {
                 std::process::exit(1);
             }
         }
         Some(Commands::Test) => {
             let cwd = std::env::current_dir()?;
-            let result = run_target(&cwd, "test", None).await?;
+            let result = run_target(&cwd, "test", None, use_cache).await?;
             if !result.is_success() {
                 std::process::exit(1);
             }
         }
         Some(Commands::Lint) => {
             let cwd = std::env::current_dir()?;
-            let result = run_target(&cwd, "lint", None).await?;
+            let result = run_target(&cwd, "lint", None, use_cache).await?;
             if !result.is_success() {
                 std::process::exit(1);
             }
         }
         Some(Commands::Run { target, project }) => {
             let cwd = std::env::current_dir()?;
-            let result = run_target(&cwd, &target, project.as_deref()).await?;
+            let result = run_target(&cwd, &target, project.as_deref(), use_cache).await?;
             if !result.is_success() {
                 std::process::exit(1);
             }
         }
         Some(Commands::Affected { target, base }) => {
             let cwd = std::env::current_dir()?;
-            let result = run_affected(&cwd, &target, &base).await?;
+            let result = run_affected(&cwd, &target, &base, use_cache).await?;
             if !result.is_success() {
                 std::process::exit(1);
             }
